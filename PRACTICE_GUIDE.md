@@ -7,13 +7,14 @@
 ## 目录
 
 1. [环境准备](#1-环境准备)
-2. [数据获取](#2-数据获取)
-3. [Phase 1：Toy 实验快速启动](#3-phase-1toy-实验快速启动)
-4. [Phase 2：MDLM 模型训练](#4-phase-2mdlm-模型训练)
-5. [Phase 3：采样策略消融](#5-phase-3采样策略消融)
-6. [Phase 4：下游修复评估](#6-phase-4下游修复评估)
-7. [常见问题排查](#7-常见问题排查)
-8. [结果分析指南](#8-结果分析指南)
+2. [项目结构与运行前后变化](#2-项目结构与运行前后变化)
+3. [数据获取](#3-数据获取)
+4. [Phase 1：Toy 实验快速启动](#4-phase-1toy-实验快速启动)
+5. [Phase 2：MDLM 模型训练](#5-phase-2mdlm-模型训练)
+6. [Phase 3：采样策略消融](#6-phase-3采样策略消融)
+7. [Phase 4：下游修复评估](#7-phase-4下游修复评估)
+8. [常见问题排查](#8-常见问题排查)
+9. [结果分析指南](#9-结果分析指南)
 
 ---
 
@@ -65,13 +66,193 @@ conda activate mdlm
 
 ---
 
-## 2. 数据获取
+## 2. 项目结构与运行前后变化
 
-### 2.1 自动下载 TinyStories
+### 2.1 克隆后（运行前）的目录结构
+
+```
+reproduce_mdlm_experiments/
+├── README.md                          # 项目说明
+├── PRACTICE_GUIDE.md                  # 本手册
+├── requirements.txt                   # Python 依赖
+├── data/
+│   └── prepare_data.py               # 数据准备脚本
+│
+├── experiment_01_toy_diffusion/
+│   ├── README.md                     # 实验说明
+│   └── run.py                        # 实验代码
+│   # └── results/                    # [运行后自动创建] 结果目录
+│
+├── experiment_02_d3pm_toy/
+│   ├── README.md
+│   └── run.py
+│   # └── results/
+│
+├── experiment_03_ctmc_toy/
+│   ├── README.md
+│   └── run.py
+│   # └── results/
+│
+├── experiment_04_mdlm_training/
+│   ├── README.md
+│   ├── configs/                      # YAML 配置文件
+│   └── scripts/                      # 训练脚本
+│   # └── results/                    # [运行后创建]
+│
+├── experiment_05_sampling_ablation/
+│   ├── README.md
+│   ├── custom_sampler.py
+│   └── scripts/                      # 消融脚本
+│   # └── results/
+│
+├── experiment_06_baseline_comparison/
+│   ├── README.md
+│   └── scripts/
+│   # └── results/
+│
+├── experiment_07_mask_repair/
+│   ├── README.md
+│   └── run.py
+│   # └── results/
+│
+├── experiment_08_token_type/
+│   ├── README.md
+│   └── run.py
+│   # └── results/
+│
+├── experiment_09_topk_repair/
+│   ├── README.md
+│   └── run.py
+│   # └── results/
+│
+└── experiment_10_d3pm_vs_ctmc/
+    ├── README.md
+    └── run.py
+    # └── results/
+```
+
+> `#` 注释的行表示**运行后才会出现**，克隆时不存在。
+
+### 2.2 数据准备后的变化
+
+```bash
+cd data && python prepare_data.py
+```
+
+运行后新增：
+```
+data/
+├── prepare_data.py                    # 原文件
+├── cache/                            # [新增] HuggingFace 数据集缓存
+│   └── ...
+├── val_texts_100.pt                  # [新增] 100条验证文本
+└── val_set_100.pt                    # [新增] 100条验证 token IDs
+```
+
+| 文件 | 内容 | 下游用途 |
+|------|------|----------|
+| `val_texts_100.pt` | `list[str]` 原始文本 | 实验 7-9 的 mask 修复输入 |
+| `val_set_100.pt` | `list[list[int]]` token IDs | 需要 tokenizer 编码时使用 |
+| `cache/` | HuggingFace 数据集原始文件 | 首次下载后复用，无需重复下载 |
+
+### 2.3 实验运行后的目录变化
+
+每个实验运行后，都会在各自的 `results/` 子目录中生成输出。以实验 1 为例：
+
+**运行前**：
+```
+experiment_01_toy_diffusion/
+├── README.md
+└── run.py
+```
+
+**运行后**（`python run.py` 执行完毕）：
+```
+experiment_01_toy_diffusion/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── forward_two_moons.png
+    ├── forward_swiss_roll.png
+    ├── forward_gaussian_mixture.png
+    ├── loss_two_moons.png
+    ├── loss_swiss_roll.png
+    ├── loss_gaussian_mixture.png
+    ├── gen_two_moons.png
+    ├── gen_swiss_roll.png
+    ├── gen_gaussian_mixture.png
+    └── results.json                  # 所有数值指标汇总
+```
+
+### 2.4 各实验结果文件一览
+
+| 实验 | results/ 目录下生成的文件 | 说明 |
+|------|---------------------------|------|
+| **实验 1** | `forward_*.png`, `gen_*.png`, `loss_*.png`, `results.json` | 前向过程、生成对比、损失曲线、指标 |
+| **实验 2** | `Q_heatmap_*.png`, `loss_*.png`, `results.json` | Q矩阵热力图、损失曲线、三种corruption指标 |
+| **实验 3** | `mask_ratio_check.png`, `tau_ablation.png`, `recovery_by_time.png`, `loss.png`, `results.json` | mask ratio验证、tau消融、时间恢复、损失 |
+| **实验 4** | `train_loss.png`, `val_ppl.png`, `maskstep_comparison.png`, `noise_schedule_comparison.png` | 训练/验证曲线、mask-step对比、噪声日程对比 |
+| **实验 5** | `steps_ablation.png`, `token_selection_*.png`, `unmask_*.png` | 步数消融、token选择策略、unmask策略 |
+| **实验 6** | `baseline_train_loss.png`, `baseline_val_ppl.png` | 三模型训练损失与验证PPL对比 |
+| **实验 7** | `accuracy_comparison.png`, `edr_comparison.png`, `results.json` | 准确率对比、EDR对比、完整数值 |
+| **实验 8** | `token_type_comparison.png`, `results.json` | 三种token类型准确率对比 |
+| **实验 9** | `topk_accuracy.png`, `reliability_diagram.png`, `demo_repair.txt`, `results.json` | Top-K准确率、可靠性图、修复样例 |
+| **实验 10** | `comparison.png`, `results.json` | D3PM vs CTMC 多维度对比 |
+
+### 2.5 实验 4-6 的特殊路径
+
+实验 4-6 在 MDLM 官方代码仓库中运行，其 checkpoint 和输出默认存储在官方仓库目录下：
+
+```
+/path/to/mdlm/
+├── configs/                          # 需从本项目复制配置进来
+│   ├── data/tinystories.yaml
+│   └── model/small_tinystories.yaml
+├── outputs/                          # [训练后] checkpoint 和日志
+│   └── <timestamp>_mdlm-tinystories/
+│       ├── checkpoints/              # 模型权重 (.ckpt)
+│       ├── logs/                     # 训练日志
+│       └── wandb/                    # 可视化记录
+└── checkpoints/                      # [手动下载] 预训练权重
+    ├── mdlm_step100.ckpt
+    └── sedd.ckpt
+```
+
+**关键路径说明**：
+
+| 路径 | 何时存在 | 用途 |
+|------|----------|------|
+| `mdlm/outputs/` | 训练完成后 | 存放训练产生的 checkpoint 和日志 |
+| `mdlm/checkpoints/` | 手动创建/下载 | 存放预训练或自己复制的 checkpoint |
+| 本项目的 `experiment_04/configs/` | 始终存在 | 配置文件模板，需复制到官方仓库 |
+| 本项目的 `experiment_04/results/` | 手动整理后 | 建议将官方仓库输出整理后复制到此 |
+
+**建议**：实验 4-6 运行后，将关键图表从 `mdlm/outputs/` 复制回本项目的对应 `experiment_0*/results/` 目录，便于统一管理。
+
+---
+
+## 3. 数据获取
+
+### 3.1 自动下载 TinyStories
 
 ```bash
 cd reproduce_mdlm_experiments/data
 python prepare_data.py
+```
+
+**运行前**：
+```
+data/
+└── prepare_data.py
+```
+
+**运行后**：
+```
+data/
+├── prepare_data.py
+├── cache/                            # [新增] HuggingFace 数据集缓存 (~500MB)
+├── val_texts_100.pt                  # [新增] 100条验证文本
+└── val_set_100.pt                    # [新增] 100条验证 token IDs
 ```
 
 首次运行会自动从 HuggingFace 下载 `roneneldan/TinyStories`，下载后：
@@ -79,7 +260,7 @@ python prepare_data.py
 - 验证集：21,990 条
 - 固定 100 条验证样本：`data/val_texts_100.pt`
 
-### 2.2 下载预训练权重（跳过训练时使用）
+### 3.2 下载预训练权重（跳过训练时使用）
 
 ```python
 from huggingface_hub import hf_hub_download
@@ -95,69 +276,142 @@ hf_hub_download(repo_id=repo_id, filename="sedd.ckpt",
                 local_dir="checkpoints")
 ```
 
+**运行后新增**：
+```
+checkpoints/                          # [新增] 手动创建或自动创建
+├── mdlm_step100.ckpt                # ~500MB
+└── sedd.ckpt                        # ~500MB
+```
+
 ---
 
-## 3. Phase 1：Toy 实验快速启动
+## 4. Phase 1：Toy 实验快速启动
 
 Toy 实验（1, 2, 3, 10）**完全独立**，不依赖 MDLM 官方代码，安装好 `requirements.txt` 后即可运行。
 
-### 3.1 实验 1：连续二维 Diffusion
+### 4.1 实验 1：连续二维 Diffusion
 
 ```bash
 cd experiment_01_toy_diffusion
 python run.py
 ```
 
-**预期输出**：
-- `results/forward_*.png` — 前向加噪过程可视化
-- `results/gen_*.png` — 真实 vs 生成样本对比
-- `results/results.json` — MMD、Sliced Wasserstein 等指标
+**运行前**：
+```
+experiment_01_toy_diffusion/
+├── README.md
+└── run.py
+```
 
-**运行时间**：CPU 约 10-15 分钟，GPU 约 3-5 分钟
+**运行后**（约 10-15 分钟）：
+```
+experiment_01_toy_diffusion/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── forward_two_moons.png         # 前向加噪可视化
+    ├── forward_swiss_roll.png
+    ├── forward_gaussian_mixture.png
+    ├── loss_two_moons.png            # 训练损失曲线
+    ├── loss_swiss_roll.png
+    ├── loss_gaussian_mixture.png
+    ├── gen_two_moons.png             # 真实 vs 生成样本对比
+    ├── gen_swiss_roll.png
+    ├── gen_gaussian_mixture.png
+    └── results.json                  # MMD、Sliced Wasserstein 等指标
+```
 
-### 3.2 实验 2：D3PM 离散 Toy
+**关键观察**：MMD 在 1e-3 量级说明恢复质量较高
+
+### 4.2 实验 2：D3PM 离散 Toy
 
 ```bash
 cd experiment_02_d3pm_toy
 python run.py
 ```
 
-**预期输出**：
-- `results/Q_heatmap_*.png` — 三种 Q 矩阵热力图
-- `results/results.json` — 三种 corruption 的准确率对比
+**运行前**：
+```
+experiment_02_d3pm_toy/
+├── README.md
+└── run.py
+```
+
+**运行后**：
+```
+experiment_02_d3pm_toy/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── Q_heatmap_uniform.png         # 三种 Q 矩阵热力图
+    ├── Q_heatmap_absorbing.png
+    ├── Q_heatmap_structured.png
+    ├── loss_uniform.png              # 训练损失曲线
+    ├── loss_absorbing.png
+    ├── loss_structured.png
+    └── results.json                  # 三种 corruption 的准确率对比
+```
 
 **关键观察**：structured corruption 的 token recovery 最高（~85%），uniform 最低（~70%）
 
-### 3.3 实验 3：CTMC 与 Tau-Leaping
+### 4.3 实验 3：CTMC 与 Tau-Leaping
 
 ```bash
 cd experiment_03_ctmc_toy
 python run.py
 ```
 
-**预期输出**：
-- `results/mask_ratio_check.png` — 闭式 mask ratio 验证
-- `results/tau_ablation.png` — tau 与误差/时间的权衡曲线
+**运行前**：
+```
+experiment_03_ctmc_toy/
+├── README.md
+└── run.py
+```
+
+**运行后**：
+```
+experiment_03_ctmc_toy/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── mask_ratio_check.png          # 闭式 mask ratio 验证
+    ├── tau_ablation.png             # tau 与误差/时间权衡
+    ├── recovery_by_time.png         # 恢复难度随时间变化
+    ├── loss.png                      # 训练损失曲线
+    └── results.json                  # 数值指标与 tau 消融数据
+```
 
 **关键观察**：tau=0.01 时 TV distance 约 0.022，是精度和效率的较好平衡
 
-### 3.4 实验 10：D3PM vs CTMC 对比
+### 4.4 实验 10：D3PM vs CTMC 对比
 
 ```bash
 cd experiment_10_d3pm_vs_ctmc
 python run.py
 ```
 
-**预期输出**：
-- `results/comparison.png` — 多维度对比图
+**运行前**：
+```
+experiment_10_d3pm_vs_ctmc/
+├── README.md
+└── run.py
+```
 
-**运行时间**：约 20-30 分钟（训练 6 个模型）
+**运行后**（约 20-30 分钟）：
+```
+experiment_10_d3pm_vs_ctmc/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── comparison.png                # 多维度对比图（6个子图）
+    └── results.json                  # 三个序列长度×两种方法的完整指标
+```
 
 ---
 
-## 4. Phase 2：MDLM 模型训练
+## 5. Phase 2：MDLM 模型训练
 
-### 4.1 复制配置文件
+### 5.1 复制配置文件
 
 ```bash
 cd /path/to/mdlm
@@ -170,11 +424,25 @@ cp /path/to/reproduce_mdlm_experiments/experiment_04/configs/small_tinystories.y
    configs/model/
 ```
 
-### 4.2 训练 MDLM（实验 4）
+### 5.2 训练 MDLM（实验 4）
 
 ```bash
 cd /path/to/mdlm
 bash /path/to/reproduce_mdlm_experiments/experiment_04/scripts/train_mdlm.sh
+```
+
+**运行前**：官方仓库无 TinyStories 相关配置
+**运行后**：
+```
+/path/to/mdlm/
+├── configs/
+│   ├── data/tinystories.yaml         # [复制进来]
+│   └── model/small_tinystories.yaml  # [复制进来]
+└── outputs/                          # [训练后自动生成]
+    └── <timestamp>_mdlm-tinystories-baseline/
+        ├── checkpoints/
+        │   └── last.ckpt            # 训练好的模型权重
+        └── logs/
 ```
 
 **预期行为**：
@@ -184,7 +452,9 @@ bash /path/to/reproduce_mdlm_experiments/experiment_04/scripts/train_mdlm.sh
 
 **运行时间**：单卡 A100 约 2-3 小时
 
-### 4.3 训练基线对比（实验 6）
+**建议**：训练完成后，将 `outputs/` 中的关键图表复制到本项目的 `experiment_04_mdlm_training/results/` 目录统一管理。
+
+### 5.3 训练基线对比（实验 6）
 
 ```bash
 cd /path/to/mdlm
@@ -193,24 +463,37 @@ bash /path/to/reproduce_mdlm_experiments/experiment_06/scripts/train_all_baselin
 
 这会依次训练 AR、SEDD、MDLM 三个模型。
 
+**运行后**：
+```
+/path/to/mdlm/outputs/                # 三个子目录，分别对应三个模型
+├── <timestamp>_ar-tinystories/
+│   └── checkpoints/last.ckpt
+├── <timestamp>_sedd-tinystories/
+│   └── checkpoints/last.ckpt
+└── <timestamp>_mdlm-tinystories-ref/
+    └── checkpoints/last.ckpt
+```
+
 **运行时间**：单卡 A100 约 6-8 小时（三个模型）
 
 ---
 
-## 5. Phase 3：采样策略消融
+## 6. Phase 3：采样策略消融
 
-### 5.1 准备
+### 6.1 准备
 
 确保已有 `checkpoints/mdlm_step100.ckpt`（实验 4 训练产出或预训练权重）。
 
-### 5.2 运行采样步数消融（实验 5.1）
+### 6.2 运行采样步数消融（实验 5.1）
 
 ```bash
 cd /path/to/mdlm
 bash /path/to/reproduce_mdlm_experiments/experiment_05/scripts/ablation_steps.sh
 ```
 
-### 5.3 运行 Token Selection 消融（实验 5.2）
+**运行后输出**：官方仓库 `outputs/` 下生成多个子目录，每个对应一个采样步数配置。
+
+### 6.3 运行 Token Selection 消融（实验 5.2）
 
 ```bash
 cd /path/to/mdlm
@@ -219,7 +502,7 @@ bash /path/to/reproduce_mdlm_experiments/experiment_05/scripts/ablation_token_se
 
 **注意**：需要在 `diffusion.py` 的采样循环中集成 `custom_sampler.py` 的策略函数。
 
-### 5.4 运行 Unmask 策略消融（实验 5.3）
+### 6.4 运行 Unmask 策略消融（实验 5.3）
 
 ```bash
 cd /path/to/mdlm
@@ -228,34 +511,87 @@ bash /path/to/reproduce_mdlm_experiments/experiment_05/scripts/ablation_unmask.s
 
 ---
 
-## 6. Phase 4：下游修复评估
+## 7. Phase 4：下游修复评估
 
-### 6.1 实验 7：Mask 修复
+### 7.1 实验 7：Mask 修复
 
 ```bash
 cd reproduce_mdlm_experiments/experiment_07_mask_repair
 python run.py
 ```
 
+**运行前**：
+```
+experiment_07_mask_repair/
+├── README.md
+└── run.py
+```
+
+**运行后**：
+```
+experiment_07_mask_repair/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── accuracy_comparison.png       # 三模型 × 九任务准确率柱状图
+    └── results.json                  # 完整数值结果（三模型 × 九任务 × 多指标）
+```
+
 **注意**：当前 `run.py` 使用占位修复函数。实际使用时需要加载真实 checkpoint 并替换 `dummy_repair` 函数。
 
-### 6.2 实验 8：Token 类型分组
+### 7.2 实验 8：Token 类型分组
 
 ```bash
 cd reproduce_mdlm_experiments/experiment_08_token_type
 python run.py
 ```
 
-### 6.3 实验 9：Top-K 交互式修复
+**运行前**：
+```
+experiment_08_token_type/
+├── README.md
+└── run.py
+```
+
+**运行后**：
+```
+experiment_08_token_type/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── token_type_comparison.png     # English/Punctuation/Rare 三类对比
+    └── results.json                  # 分组准确率数值
+```
+
+### 7.3 实验 9：Top-K 交互式修复
 
 ```bash
 cd reproduce_mdlm_experiments/experiment_09_topk_repair
 python run.py
 ```
 
+**运行前**：
+```
+experiment_09_topk_repair/
+├── README.md
+└── run.py
+```
+
+**运行后**：
+```
+experiment_09_topk_repair/
+├── README.md
+├── run.py
+└── results/                          # [自动创建]
+    ├── topk_accuracy.png             # Top-1/3/5 准确率柱状图
+    ├── reliability_diagram.png       # 置信度-准确率可靠性图
+    ├── demo_repair.txt               # 人工辅助修复文本样例
+    └── results.json                  # Top-K 准确率和可靠性数据
+```
+
 ---
 
-## 7. 常见问题排查
+## 8. 常见问题排查
 
 ### 问题 1：TinyStories 下载失败
 
@@ -277,7 +613,16 @@ python data/prepare_data.py
 - 使用更小的模型：`model.length=128`
 - 或使用 CPU 运行（toy 实验支持 CPU）
 
-### 问题 3：缺少 tokenizer
+### 问题 3：找不到结果目录
+
+**现象**：运行后不知道结果存在哪里
+
+**解决**：所有实验的结果都在各自 `experiment_*/results/` 目录下。如果未找到，检查：
+1. 脚本是否成功执行完毕（未报错中断）
+2. 当前工作目录是否正确（应在实验目录或项目根目录运行）
+3. 是否有写权限（`results/` 目录会在首次运行时自动创建）
+
+### 问题 4：缺少 tokenizer
 
 **现象**：`OSError: Can't load tokenizer`
 
@@ -287,17 +632,17 @@ from transformers import GPT2Tokenizer
 # 首次使用会自动下载
 ```
 
-### 问题 4：实验 4-6 找不到配置
+### 问题 5：实验 4-6 找不到配置
 
 **现象**：`Could not load 'configs/data/tinystories.yaml'`
 
-**解决**：确保已将配置文件复制到官方 mdlm 仓库的 configs 目录
+**解决**：确保已将配置文件从本项目的 `experiment_04/configs/` 复制到官方 mdlm 仓库的 `configs/` 目录
 
 ---
 
-## 8. 结果分析指南
+## 9. 结果分析指南
 
-### 如何判断实验是否成功？
+### 9.1 如何判断实验是否成功？
 
 | 实验 | 成功标志 | 失败标志 |
 |------|----------|----------|
@@ -312,7 +657,7 @@ from transformers import GPT2Tokenizer
 | 实验 9 | Top-3 > Top-1 + 10pp | 提升 < 5pp |
 | 实验 10 | D3PM acc > CTMC | CTMC 全面领先 |
 
-### 关键指标速查
+### 9.2 关键指标速查
 
 | 指标 | 含义 | 越高越好？ |
 |------|------|-----------|
