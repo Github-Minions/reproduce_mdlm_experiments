@@ -1,6 +1,6 @@
 # Diffusion & MDLM 实验复现项目
 
-> 本项目按照《Diffusion 与 MDLM 实验流程和结果分析》文档（DDPM3），为每个实验提供独立的子文件夹，包含完整的代码实现、运行说明和结果分析。
+> 本项目按照《Diffusion 与 MDLM 实验流程和结果分析》文档，为每个实验提供独立的子文件夹，包含完整的代码实现、运行说明和结果分析。
 >
 > **参考仓库**：
 > - 官方 MDLM：`https://github.com/kuleshov-group/mdlm`
