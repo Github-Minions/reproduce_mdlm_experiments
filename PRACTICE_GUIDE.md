@@ -283,6 +283,116 @@ checkpoints/                          # [新增] 手动创建或自动创建
 └── sedd.ckpt                        # ~500MB
 ```
 
+### 3.3 数据存储位置详解
+
+运行 `python data/prepare_data.py` 后，所有数据都存储在 `data/` 目录下，分为三个部分：
+
+| 文件/目录 | 内容 | 大小 | 下游使用方 |
+|-----------|------|------|-----------|
+| `data/cache/` | HuggingFace 原始数据集缓存（含 train/validation 全部数据） | ~500MB | 实验 4-6（MDLM 训练时直接读取） |
+| `data/val_texts_100.pt` | 100 条验证文本（`list[str]`，原始字符串） | ~50KB | 实验 7（mask 修复输入）、实验 8（token 类型分组）、实验 9（Top-K 修复） |
+| `data/val_set_100.pt` | 100 条验证文本的 GPT-2 token IDs（`list[list[int]]`） | ~20KB | 实验 7-9 中需要预先编码的场景 |
+
+**关键说明**：
+
+- `cache/` 中存放的是 HuggingFace `datasets` 库的标准缓存格式，实验 4-6 在 MDLM 官方代码中训练时会通过 `load_dataset("roneneldan/TinyStories", cache_dir=...)` 自动读取。
+- `val_texts_100.pt` 和 `val_set_100.pt` 是下游评估实验（7-9）的固定输入。它们通过 `seed=1` 从验证集中随机抽取，确保复现结果与论文一致。
+- 只要 `val_texts_100.pt` 和 `val_set_100.pt` 存在，实验 7-9 即可正常运行，无需重复下载完整数据集。
+
+### 3.4 使用本地数据
+
+如果你已经下载过 TinyStories 或者有离线数据集，以下四种方式可以避免重复下载：
+
+#### 方式一：利用 HuggingFace 缓存（推荐）
+
+`load_dataset` 会自动检测 `cache_dir` 中是否已有数据。将已有的 TinyStories 缓存复制到项目目录：
+
+```bash
+# 将已有缓存复制到项目 data/cache/ 目录
+cp -r /path/to/your/tinystories_cache/*  reproduce_mdlm_experiments/data/cache/
+```
+
+然后正常运行：
+```bash
+cd reproduce_mdlm_experiments/data
+python prepare_data.py
+```
+
+脚本会检测到缓存存在，跳过下载，仅执行验证集抽取和 tokenizer 编码。
+
+#### 方式二：修改脚本指向本地路径
+
+如果你有离线数据集文件（如 parquet/json 格式），修改 `data/prepare_data.py`：
+
+```python
+# 原代码（从 HuggingFace 下载）
+# dataset = load_dataset("roneneldan/TinyStories", cache_dir=CACHE_DIR)
+
+# 改为加载本地文件
+dataset = load_dataset("parquet", data_files={
+    "train": "/path/to/your/train.parquet",
+    "validation": "/path/to/your/validation.parquet"
+})
+```
+
+支持的格式包括 `parquet`、`json`、`csv` 等，具体取决于你的本地数据格式。
+
+#### 方式三：仅生成本地验证集（跳过完整下载）
+
+如果你只需要那 100 条验证样本用于下游实验（7-9），可以直接用自己的文本生成：
+
+```python
+import torch
+from transformers import GPT2Tokenizer
+
+# 用自己的文本替换（至少 100 条）
+my_texts = ["你的文本1...", "你的文本2...", ...]
+
+# 保存为相同格式
+torch.save(my_texts[:100], "data/val_texts_100.pt")
+
+# 同时生成 tokenized 版本
+tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+if tokenizer.pad_token is None:
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+encoded = [tokenizer.encode(t, max_length=256, truncation=True) for t in my_texts[:100]]
+torch.save(encoded, "data/val_set_100.pt")
+```
+
+生成后实验 7-9 即可直接读取，无需运行 `prepare_data.py`。
+
+#### 方式四：设置 HuggingFace 镜像（国内网络）
+
+如果因网络问题无法连接到 HuggingFace 官方站点，使用镜像站：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+cd data && python prepare_data.py
+```
+
+设置后 `datasets` 库会自动从镜像站下载数据，无需修改代码。
+
+### 3.5 各实验数据依赖关系
+
+| 实验编号 | 实验名称 | 数据依赖 | 数据来源 |
+|----------|----------|----------|----------|
+| 1 | 连续二维 Diffusion | 无（代码内生成 synthetic 数据） | 运行时生成 |
+| 2 | D3PM 离散 Toy | 无（代码内生成 synthetic 数据） | 运行时生成 |
+| 3 | CTMC 与 Tau-Leaping | 无（代码内生成 synthetic 数据） | 运行时生成 |
+| 4 | MDLM 模型训练 | TinyStories 完整数据集 | `data/cache/` 或 HuggingFace |
+| 5 | 采样策略消融 | 实验 4 产出的 checkpoint | `checkpoints/mdlm_step100.ckpt` |
+| 6 | 基线对比训练 | TinyStories 完整数据集 | `data/cache/` 或 HuggingFace |
+| 7 | Mask 修复 | 100 条验证文本 | `data/val_texts_100.pt` |
+| 8 | Token 类型分组 | 100 条验证文本 | `data/val_texts_100.pt` |
+| 9 | Top-K 交互式修复 | 100 条验证文本 | `data/val_texts_100.pt` |
+| 10 | D3PM vs CTMC | 无（代码内生成 synthetic 数据） | 运行时生成 |
+
+**总结**：
+- **实验 1-3、10**：完全自包含，不依赖任何外部数据，直接运行即可。
+- **实验 4、6**：需要 TinyStories 完整数据集（通过 `data/cache/` 或 HuggingFace 获取）。
+- **实验 7-9**：只需要 100 条验证样本（`data/val_texts_100.pt`），可通过上述四种方式获取。
+- **实验 5**：依赖实验 4 产出的 checkpoint，不直接依赖数据集。
+
 ---
 
 ## 4. Phase 1：Toy 实验快速启动
